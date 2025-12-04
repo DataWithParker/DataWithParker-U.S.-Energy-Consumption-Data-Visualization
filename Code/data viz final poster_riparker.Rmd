@@ -1,0 +1,598 @@
+in---
+title: "WiP Report - U.S. Fossil Fuel Picture"
+author: "R. Parker"
+date: "2025-04-10"
+output: pdf_document
+---
+
+```{r}
+# import libraries
+
+library(ggplot2)
+library(readxl)
+library(tidyverse)
+library(readr)
+library(maps)
+library(dplyr)
+library(scales)
+library(packcircles)
+library(ggiraph)
+library(ggrepel)
+library(ggalluvial)
+library(RColorBrewer)
+library(ggridges)
+library(sf)
+library(paletteer)
+library(usmap)
+
+
+```
+
+
+```{r}
+
+# import data
+## all data is (annual); source: U.S. Energy Information Administration (EIA)
+
+## Energy Overview 
+
+# Primary energy consumption estimates by source
+fuel <- read_excel("~/Desktop/Data Viz. Project - Fossil Fuels U.S_/R Data Import/Table 1.3 - Annual_Primary_Energy_Consumption_by_Source.xlsx") 
+
+# Primary energy production  by source
+prod <- read_excel("~/Desktop/Data Viz. Project - Fossil Fuels U.S_/R Data Import/Table 1.2 - Annual_Primary_Energy_Production_by_Source.xlsx") 
+
+
+## Summary Energy consumption estimates by sector 
+
+# Residential, Commercial, and Industrial sectors
+rci <- read_excel("~/Desktop/Data Viz. Project - Fossil Fuels U.S_/R Data Import/Table 2.1a - Annual__Energy_Consumption__Residential_-_Commercial_-_and_Industrial_Sectors.xlsx") 
+
+# Transportation sector, total end-use sectors, and electric power sector
+tee <- read_excel("~/Desktop/Data Viz. Project - Fossil Fuels U.S_/R Data Import/Table 2.1b - Annual__Energy_Consumption__Transportation_Sector_-_Total_End-Use_Sectors_-_and_Electric_Power_Sector.xlsx") 
+
+
+## Individual sector energy consumption
+
+# Residential
+resi <- read_excel("~/Desktop/Data Viz. Project - Fossil Fuels U.S_/R Data Import/Table 2.2 - Annual_Residential_Sector_Energy_Consumption.xlsx") 
+
+# Commercial
+comm <- read_excel("~/Desktop/Data Viz. Project - Fossil Fuels U.S_/R Data Import/Table 2.3 - Annual_Commercial_Sector_Energy_Consumption.xlsx") 
+
+# Industrial
+ind <- read_excel("~/Desktop/Data Viz. Project - Fossil Fuels U.S_/R Data Import/Table 2.4 - Annual_Industrial_Sector_Energy_Consumption.xlsx") 
+
+# Transportation
+transport <- read_excel("~/Desktop/Data Viz. Project - Fossil Fuels U.S_/R Data Import/Table 2.5 - Annual_Transportation_Sector_Energy_Consumption.xlsx") 
+
+# Electric Power
+ep <- read_excel("~/Desktop/Data Viz. Project - Fossil Fuels U.S_/R Data Import/Table 2.6 - Annual_Electric_Power_Sector_Energy_Consumption.xlsx") 
+
+## inspect datasets (total = 9)
+str(fuel)
+str(prod)
+str(rci)
+str(tee)
+str(resi)
+str(comm)
+str(ind)
+str(transport)
+str(ep)
+
+```
+
+```{r}
+# clean data
+
+# remove 'Not Available' from datasets and replace with "0", change 'chr' to 'num'
+
+library(dplyr)
+
+clean_data <- function(df) { # function to clean a dataset
+  df %>%
+    mutate(across(
+      everything(),
+      ~ as.numeric(gsub("Not Available", "0", .))
+    ))
+}
+
+fuel <- clean_data(fuel)
+prod <- clean_data(prod)
+rci <- clean_data(rci)
+tee <- clean_data(tee)
+resi <- clean_data(resi)
+comm <- clean_data(comm)
+ind <- clean_data(ind)
+transport <- clean_data(transport)
+ep <- clean_data(ep)
+
+str(fuel)
+str(prod)
+str(rci)
+str(tee)
+str(resi)
+str(comm)
+str(ind)
+str(transport)
+str(ep)
+
+# check for NA's
+colSums(is.na(fuel))
+colSums(is.na(prod))
+colSums(is.na(rci))
+colSums(is.na(tee))
+colSums(is.na(resi))
+colSums(is.na(comm))
+colSums(is.na(ind))
+colSums(is.na(transport))
+colSums(is.na(ep))
+
+```
+
+```{r}
+# Plot 1: Central Plot (Type:Alluvium)
+
+## data prep
+
+# Example years and fossil fuels from each sector
+years <- 1949:2024
+
+# Extract key fossil fuel consumption values (adjust to your data variable names)
+fossil_data <- bind_rows(
+  resi %>% select(Year, Coal = `Coal Consumed by the Residential Sector`, 
+                  Gas = `Natural Gas Consumed by the Residential Sector (Excluding Supplemental Gaseous Fuels)`, 
+                  Petroleum = `Petroleum Consumed by the Residential Sector`) %>%
+    mutate(Sector = "Residential"),
+
+  comm %>% select(Year, Coal = `Coal Consumed by the Commercial Sector`, 
+                  Gas = `Natural Gas Consumed by the Commercial Sector (Excluding Supplemental Gaseous Fuels)`, 
+                  Petroleum = `Petroleum Consumed by the Commercial Sector (Excluding Biofuels)`) %>%
+    mutate(Sector = "Commercial"),
+
+  ind %>% select(Year, Coal = `Coal Consumed by the Industrial Sector`, 
+                 Gas = `Natural Gas Consumed by the Industrial Sector (Excluding Supplemental Gaseous Fuels)`, 
+                 Petroleum = `Petroleum Consumed by the Industrial Sector (Excluding Biofuels)`) %>%
+    mutate(Sector = "Industrial"),
+
+  transport %>% select(Year, Coal = `Coal Consumed by the Transportation Sector`, 
+                       Gas = `Natural Gas Consumed by the Transportation Sector (Excluding Supplemental Gaseous Fuels)`, 
+                       Petroleum = `Petroleum Consumed by the Transportation Sector (Excluding Biofuels)`) %>%
+    mutate(Sector = "Transportation"),
+
+  ep %>% select(Year, Coal = `Coal Consumed by the Electric Power Sector`, 
+                Gas = `Natural Gas Consumed by the Electric Power Sector (Excluding Supplemental Gaseous Fuels)`, 
+                Petroleum = `Petroleum Consumed by the Electric Power Sector`) %>%
+    mutate(Sector = "Electric Power")
+)
+
+# Pivot to long format
+fossil_long <- fossil_data %>%
+  pivot_longer(cols = c(Coal, Gas, Petroleum), names_to = "Fuel", values_to = "Consumption") %>%
+  filter(Year %in% c(1950, 1975, 2000, 2023))  # Pick key years for visual clarity
+
+
+# Plot 
+
+# Step 1: Add a period column
+fossil_grouped <- fossil_long %>%
+  mutate(
+    Period = case_when(
+      Year >= 1949 & Year < 1970 ~ "1949–1970",
+      Year >= 1970 & Year < 1990 ~ "1970–1990",
+      Year >= 1990 & Year < 2010 ~ "1990–2010",
+      Year >= 2010 ~ "2010–2024"
+    )
+  ) %>%
+  group_by(Fuel, Sector, Period) %>%
+  summarise(Consumption = sum(Consumption, na.rm = TRUE), .groups = "drop")
+
+# Plot using Period instead of Year
+ggplot(fossil_grouped,
+       aes(axis1 = Fuel,
+           axis2 = Sector,
+           axis3 = Period,
+           y = Consumption)) +
+  geom_alluvium(aes(fill = Fuel), width = 0.15, alpha = 0.85) +
+  geom_stratum(width = 0.15, fill = "gray95", color = "black") +
+  geom_text(stat = "stratum", aes(label = after_stat(stratum)), size = 3.5, family = "sans") +
+  scale_x_discrete(limits = c("Fuel", "Sector", "Period"), expand = c(0.05, 0.05)) +
+  scale_fill_brewer(type = "qual", palette = "Set2") +
+  theme_minimal(base_size = 14) +
+  theme(
+    axis.title = element_blank(),
+    axis.text.y = element_blank(),
+    axis.ticks = element_blank(),
+    panel.grid = element_blank(),
+    plot.title = element_text(face = "bold", size = 18),
+    plot.subtitle = element_text(size = 13),
+    legend.position = "bottom"
+  ) +
+  labs(
+    title = "Fossil Fuel Flow by Sector and Time Period (1949–2024)",
+    subtitle = "Grouped view of coal, natural gas, and petroleum consumption across U.S. sectors by era",
+    fill = "Fuel Type",
+    y = "Total Consumption (Trillion Btu)"
+  )
+
+
+```
+
+```{r}
+# Plot 2 -  Total Fossil Fuel Use by Sector Over Time (Type:Line)
+
+
+# Combine total fossil fuel use per sector
+fossil_sector <- bind_rows(
+  resi %>% select(Year, Fossil = `Total Fossil Fuels Consumed by the Residential Sector`) %>%
+    mutate(Sector = "Residential"),
+  comm %>% select(Year, Fossil = `Total Fossil Fuels Consumed by the Commercial Sector`) %>%
+    mutate(Sector = "Commercial"),
+  ind %>% select(Year, Fossil = `Total Fossil Fuels Consumed by the Industrial Sector`) %>%
+    mutate(Sector = "Industrial"),
+  transport %>% select(Year, Fossil = `Total Fossil Fuels Consumed by the Transportation Sector`) %>%
+    mutate(Sector = "Transportation"),
+  ep %>% select(Year, Fossil = `Total Fossil Fuels Consumed by the Electric Power Sector`) %>%
+    mutate(Sector = "Electric Power")
+)
+
+library(scales)
+
+ggplot(fossil_sector, aes(x = Year, y = Fossil, fill = Sector)) +
+  geom_area(color = "black", size = 0.3) +  # outline
+  scale_fill_paletteer_d("viridis::cividis") +  # same as US map color style
+  scale_y_continuous(labels = comma_format()) +
+  labs(
+    title = "U.S. Fossil Fuel Consumption by Sector (1949–2023)",
+    subtitle = "Stacked area showing total usage across sectors (Trillion Btu)",
+    x = "Year", y = "Trillion Btu", fill = "Sector",
+    caption = "Source: U.S. Energy Information Administration"
+  ) +
+  theme_minimal(base_size = 14) +
+  theme(
+    legend.position = "bottom",
+    legend.title = element_text(face = "bold"),
+    panel.grid.minor = element_blank(),
+    plot.title = element_text(face = "bold", size = 18),
+    plot.subtitle = element_text(size = 13)
+  )
+```
+
+```{r}
+# Plot 3 - Fossil vs Renewable Energy – Residential & Commercial (Type: Line)
+
+# Combine fossil and renewable lines for each sector
+resi_renew <- resi %>%
+  select(Year, Fossil = `Total Fossil Fuels Consumed by the Residential Sector`,
+         Renew = `Total Renewable Energy Consumed by the Residential Sector`) %>%
+  pivot_longer(-Year, names_to = "Source", values_to = "Consumption") %>%
+  mutate(Sector = "Residential")
+
+comm_renew <- comm %>%
+  select(Year, Fossil = `Total Fossil Fuels Consumed by the Commercial Sector`,
+         Renew = `Total Renewable Energy Consumed by the Commercial Sector`) %>%
+  pivot_longer(-Year, names_to = "Source", values_to = "Consumption") %>%
+  mutate(Sector = "Commercial")
+
+renew_plot <- bind_rows(resi_renew, comm_renew)
+
+ggplot(renew_plot, aes(x = Year, y = Consumption, color = Source)) +
+  geom_line(size = 1.2) +
+  facet_wrap(~Sector, ncol = 1, scales = "free_y") +
+  labs(
+    title = "Fossil vs Renewable Energy Use in Residential & Commercial Sectors",
+    y = "Trillion Btu", x = "Year", color = "Energy Type"
+  ) +
+  theme_minimal(base_size = 14)
+```
+
+```{r}
+# Plot 4 - 2023 Energy Mix by Sector (Type: Bar)
+
+# Extract 2023 data from each sector
+mix_2023 <- bind_rows(
+  resi %>% filter(Year == 2023) %>%
+    transmute(Sector = "Residential", Fossil = `Total Fossil Fuels Consumed by the Residential Sector`,
+              Renew = `Total Renewable Energy Consumed by the Residential Sector`),
+  comm %>% filter(Year == 2023) %>%
+    transmute(Sector = "Commercial", Fossil = `Total Fossil Fuels Consumed by the Commercial Sector`,
+              Renew = `Total Renewable Energy Consumed by the Commercial Sector`),
+  ind %>% filter(Year == 2023) %>%
+    transmute(Sector = "Industrial", Fossil = `Total Fossil Fuels Consumed by the Industrial Sector`,
+              Renew = `Total Renewable Energy Consumed by the Industrial Sector`),
+  ep %>% filter(Year == 2023) %>%
+    transmute(Sector = "Electric Power", Fossil = `Total Fossil Fuels Consumed by the Electric Power Sector`,
+              Renew = `Total Renewable Energy Consumed by the Electric Power Sector`)
+) %>%
+  pivot_longer(cols = c(Fossil, Renew), names_to = "Type", values_to = "Btu")
+
+ggplot(mix_2023, aes(x = Sector, y = Btu, fill = Type)) +
+  geom_bar(stat = "identity", position = "fill") +
+  scale_y_continuous(labels = scales::percent) +
+  labs(
+    title = "Energy Mix by Sector in 2023",
+    y = "% of Total Energy", x = "", fill = "Source"
+  ) +
+  theme_minimal(base_size = 14)
+
+```
+
+```{r}
+# Plot 5 - Change in Fossil Fuel Use Since 1949
+
+# Calculate % change in fossil fuel use per sector
+change_df <- fossil_sector %>%
+  filter(Year %in% c(1949, 2023)) %>%
+  pivot_wider(names_from = Year, values_from = Fossil) %>%
+  mutate(Change = (`2023` - `1949`) / `1949` * 100)
+
+ggplot(change_df, aes(x = reorder(Sector, Change), y = Change, fill = Change > 0)) +
+  geom_col() +
+  coord_flip() +
+  scale_fill_manual(values = c("TRUE" = "#0072B2", "FALSE" = "#D55E00"),
+                    labels = c("Decrease", "Increase")) +
+  labs(
+    title = "Percentage Change in Fossil Fuel Consumption by Sector (1949–2023)",
+    y = "% Change", x = "", fill = ""
+  ) +
+  theme_minimal(base_size = 14)
+
+```
+
+```{r}
+# Plot 6 - Fossil vs Renewable % Change (1949–2024) (Type: Lollipop)
+
+# Summarize total renewables for each year
+fuel_summarized <- fuel %>%
+  mutate(Renewables = `Hydroelectric Power Consumption` +
+                      `Biomass Energy Consumption` +
+                      `Solar Energy Consumption` +
+                      `Wind Energy Consumption` +
+                      `Geothermal Energy Consumption`) %>%
+  filter(Year %in% c(1949, 2024)) %>%
+  select(Year,
+         Coal = `Coal Consumption`,
+         Gas = `Natural Gas Consumption (Excluding Supplemental Gaseous Fuels)`,
+         Petroleum = `Petroleum Consumption (Excluding Biofuels)`,
+         Renewables)
+
+# Reshape and calculate % change
+energy_change <- fuel_summarized %>%
+  pivot_longer(-Year, names_to = "Source", values_to = "Consumption") %>%
+  pivot_wider(names_from = Year, values_from = Consumption) %>%
+  mutate(
+    Change = ifelse(`1949` == 0, NA, (`2024` - `1949`) / `1949` * 100),
+    Category = ifelse(Source == "Renewables", "Renewable", "Fossil")
+  )
+
+# Plot
+ggplot(energy_change, aes(x = reorder(Source, Change), y = Change, color = Category)) +
+  geom_segment(aes(xend = Source, y = 0, yend = Change), color = "gray70") +
+  geom_point(size = 5) +
+  scale_color_manual(values = c("Fossil" = "#D55E00", "Renewable" = "#009E73")) +
+  coord_flip() +
+  labs(
+    title = "Change in U.S. Energy Consumption by Source (1949–2024)",
+    subtitle = "Natural gas and renewables have grown significantly; coal use has declined",
+    y = "% Change", x = "", color = "Energy Type"
+  ) +
+  theme_minimal(base_size = 14)
+
+
+```
+
+```{r}
+# Plot 7 - 
+
+# Use production data
+prod_long <- prod %>%
+  select(Year,
+         Coal = `Coal Production`,
+         Gas = `Natural Gas (Dry) Production`,
+         Petroleum = `Crude Oil Production`,
+         Nuclear = `Nuclear Electric Power Production`,
+         Hydro = `Hydroelectric Power Production`,
+         Biomass = `Biomass Energy Production`,
+         Solar = `Solar Energy Production`,
+         Wind = `Wind Energy Production`) %>%
+  pivot_longer(-Year, names_to = "Source", values_to = "Production")
+
+ggplot(prod_long, aes(x = Year, y = Production, fill = Source)) +
+  geom_area(alpha = 0.85) +
+  scale_fill_brewer(palette = "Set3") +
+  labs(
+    title = "U.S. Primary Energy Production by Source (1949–2024)",
+    y = "Quadrillion Btu", x = "Year", fill = "Source"
+  ) +
+  theme_minimal(base_size = 14)
+
+
+```
+
+```{r}
+# Plot 8 - Fuel types consumed by sector (Type: Ridgeline)
+
+# Prep: reshape fossil data by fuel + sector
+fossil_stacked <- bind_rows(
+  resi %>% select(Year,
+                  Coal = `Coal Consumed by the Residential Sector`,
+                  Gas = `Natural Gas Consumed by the Residential Sector (Excluding Supplemental Gaseous Fuels)`,
+                  Petroleum = `Petroleum Consumed by the Residential Sector`) %>%
+    mutate(Sector = "Residential"),
+
+  comm %>% select(Year,
+                  Coal = `Coal Consumed by the Commercial Sector`,
+                  Gas = `Natural Gas Consumed by the Commercial Sector (Excluding Supplemental Gaseous Fuels)`,
+                  Petroleum = `Petroleum Consumed by the Commercial Sector (Excluding Biofuels)`) %>%
+    mutate(Sector = "Commercial"),
+
+  ind %>% select(Year,
+                 Coal = `Coal Consumed by the Industrial Sector`,
+                 Gas = `Natural Gas Consumed by the Industrial Sector (Excluding Supplemental Gaseous Fuels)`,
+                 Petroleum = `Petroleum Consumed by the Industrial Sector (Excluding Biofuels)`) %>%
+    mutate(Sector = "Industrial"),
+
+  transport %>% select(Year,
+                       Coal = `Coal Consumed by the Transportation Sector`,
+                       Gas = `Natural Gas Consumed by the Transportation Sector (Excluding Supplemental Gaseous Fuels)`,
+                       Petroleum = `Petroleum Consumed by the Transportation Sector (Excluding Biofuels)`) %>%
+    mutate(Sector = "Transportation"),
+
+  ep %>% select(Year,
+                Coal = `Coal Consumed by the Electric Power Sector`,
+                Gas = `Natural Gas Consumed by the Electric Power Sector (Excluding Supplemental Gaseous Fuels)`,
+                Petroleum = `Petroleum Consumed by the Electric Power Sector`) %>%
+    mutate(Sector = "Electric Power")
+) %>%
+  pivot_longer(cols = c(Coal, Gas, Petroleum), names_to = "Fuel", values_to = "Consumption")
+
+# Plot
+ggplot(fossil_stacked, aes(x = Year, y = Sector, height = Consumption, fill = Fuel)) +
+  geom_density_ridges(stat = "identity", scale = 1.5, alpha = 0.85, color = NA) +
+  scale_fill_brewer(palette = "Pastel1") +
+  labs(
+    title = "Stacked Ridgeline of Fossil Fuel Use by Sector (1949–2024)",
+    x = "Year", y = "Sector", fill = "Fuel Type"
+  ) +
+  theme_minimal(base_size = 14)
+
+```
+
+```{r}
+# State Specific Data
+
+################################################################################
+
+# import data
+
+# Primary energy consumption by source, ranked by state
+prim_e <- "~/Desktop/Data Viz. Project - Fossil Fuels U.S_/R Data Import/use_energy_source.xlsx"
+
+# Total energy consumption per capita by end-use sector, ranked by state 
+us_e_total <- "~/Desktop/Data Viz. Project - Fossil Fuels U.S_/R Data Import/use_tot_capita.xlsx"
+
+# extract specific sheets from excel files 
+
+read_sheet_to_df <- function(file, sheet) {
+  read_excel(file, sheet = sheet) %>%
+    mutate(source_file = basename(file))
+}
+
+# state consumption data by energy source (billion btu)
+us_coal_by_state <- read_sheet_to_df(prim_e, sheet = "Coal")
+head(us_coal_by_state)
+us_ng_by_state <- read_sheet_to_df(prim_e, sheet = "Natural gas")
+head(us_ng_by_state)
+us_pt_by_state <- read_sheet_to_df(prim_e, sheet = "Nuclear")
+head(us_pt_by_state)
+us_renew_by_state <- read_sheet_to_df(prim_e, sheet = "Total renewable energy")
+head(us_renew_by_state)
+
+# total energy consumption by state by sector (million btu)
+us_res_by_state <- read_sheet_to_df(us_e_total, sheet = "Residential sector")
+head(us_res_by_state)
+us_comm_by_state <- read_sheet_to_df(us_e_total, sheet = "Commercial sector")
+head(us_comm_by_state)
+us_ind_by_state <- read_sheet_to_df(us_e_total, sheet = "Industrial sector")
+head(us_ind_by_state)
+us_tp_by_state <- read_sheet_to_df(us_e_total, sheet = "Transportation sector")
+head(us_tp_by_state)
+us_total_by_state <- read_sheet_to_df(us_e_total, sheet = "Total consumption")
+head(us_total_by_state)
+
+```
+
+```{r}
+
+# Total energy consumption by state - Plot on U.S. map (use paletteer_c("ggthemes::Blue-Green Sequential", 30) to show magnitude) - 2022 only 
+
+us_total_by_state <- read_excel(us_e_total, sheet = "Total consumption", skip = 1)
+colnames(us_total_by_state)[1] <- "State"
+
+us_total_long <- us_total_by_state %>%
+  pivot_longer(cols = -State, names_to = "Year", values_to = "Consumption") %>%
+  mutate(Year = as.numeric(Year))
+
+# Filter for 2022
+us_2022 <- us_total_long %>%
+  filter(Year == 2022) %>%
+  rename(state = State, consumption = Consumption)
+
+plot_usmap(data = us_2022, values = "consumption", color = "black") +
+  scale_fill_paletteer_c("grDevices::BluYl", direction = 1, limits = c(min(us_2022$consumption, na.rm=TRUE),
+                                                                       max(us_2022$consumption, na.rm=TRUE))) +
+  labs(title = "Total Energy Consumption per Capita by State (2022)",
+       fill = "Million Btu") +
+  theme(legend.position = "right")
+
+
+
+# Group states into regions (northeast, south, midwest, etc.) and create a table that summarizes total energy consumption by region - 2022 only
+
+# Define regions
+regions <- data.frame(
+  State = state.abb,
+  Region = state.region
+)
+
+# Join region info
+region_summary <- us_total_by_state %>%
+  select(State, `2022`) %>%
+  rename(consumption = `2022`) %>%
+  inner_join(regions, by = "State") %>%
+  group_by(Region) %>%
+  summarise(Total_Consumption = sum(consumption, na.rm = TRUE)) %>%
+  arrange(desc(Total_Consumption))
+
+print(region_summary)
+
+# List top 5 states in total consumption - Table - 2022 only 
+
+top_total_states <- us_total_by_state %>%
+  select(State, `2022`) %>%
+  rename(consumption = `2022`) %>%
+  arrange(desc(consumption)) %>%
+  head(5)
+
+print(top_total_states)
+
+# List top 5 states in each energy source - Table - 2022 only 
+
+# Helper function to get top 5 states for a given df
+get_top_states <- function(df, label) {
+  df %>%
+    select(State, `2022`) %>%
+    rename(consumption = `2022`) %>%
+    arrange(desc(consumption)) %>%
+    head(5) %>%
+    mutate(Source = label)
+}
+
+top_sources <- bind_rows(
+  get_top_states(us_renew_by_state, "Renewable"),
+  get_top_states(us_ng_by_state, "Natural Gas"),
+  get_top_states(us_pt_by_state, "Nuclear"),
+  get_top_states(us_coal_by_state, "Coal")
+)
+
+print(top_sources)
+
+# List top 5 states in each sector - Table - 2022 only 
+
+top_sector_states <- bind_rows(
+  get_top_states(us_res_by_state, "Residential"),
+  get_top_states(us_comm_by_state, "Commercial"),
+  get_top_states(us_ind_by_state, "Industrial"),
+  get_top_states(us_tp_by_state, "Transportation")
+)
+
+print(top_sector_states)
+
+
+
+
+
+
+
+```
+
