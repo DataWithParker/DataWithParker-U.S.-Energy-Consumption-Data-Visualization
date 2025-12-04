@@ -96,7 +96,6 @@ Data were transformed and aggregated to support the final visualizations and ove
 
 **Long-format reshaping:**  
 Used `pivot_longer()` and `pivot_wider()` to prepare data for:  
-- Alluvial plots  
 - Stacked area charts  
 - Line charts  
 - Ridgeline plots  
