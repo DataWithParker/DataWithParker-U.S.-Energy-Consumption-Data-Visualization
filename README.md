@@ -112,4 +112,7 @@ Used `pivot_longer()` and `pivot_wider()` to prepare data for:
 
 The analysis and visualization were performed in **R**, using the following packages:ggplot2, readxl, tidyverse, readr, maps, dplyr, scales, packcircles, ggiraph, ggrepel, ggalluvial, RColorBrewer, ggridges, sf, paletteer, and usmap
 
+## Poster
+![Alt text](IST_719_Data_Viz_final_poster.jpg)
+
 
